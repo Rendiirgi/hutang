@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tracker Hutang — Full</title>
+
+  <!-- Supabase UMD -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#f4f6f8; --card:#fff; --muted:#6b7280; --accent:#0ea5a4;
+      --danger:#ef4444; --success:#16a34a;
+    }
+    [data-theme="dark"]{
+      --bg:#0b1220; --card:#081025; --muted:#9aa4b2; --accent:#14b8a6;
+      color:#e6eef6;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:Inter, ui-sans-serif, system-ui; background:var(--bg); color: #0f172a; padding:16px;
+    }
+    header{max-width:1000px;margin:0 auto 18px;display:flex;gap:12px;align-items:center}
+    header img{height:56px;border-radius:8px}
+    .title{flex:1}
+    .title h1{margin:0;font-size:18px}
+    .title p{margin:0;color:var(--muted);font-size:13px}
+    .actions{display:flex;gap:8px;align-items:center}
+
+    .container{max-width:1000px;margin:0 auto;display:grid;grid-template-columns:360px 1fr;gap:16px}
+    .card{background:var(--card);border-radius:10px;padding:14px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+
+    label{font-size:13px;color:var(--muted)}
+    input,textarea,select{
+      width:100%;padding:8px;border-radius:6px;border:1px solid #e6eef6;margin-top:6px;margin-bottom:10px;background:transparent
+    }
+    textarea{min-height:70px}
+    button{background:var(--accent);color:white;padding:10px;border-radius:8px;border:0;cursor:pointer}
+    .btn-small{padding:6px 8px;font-size:13px;border-radius:6px}
+
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:10px;border-bottom:1px solid #eef2f7;text-align:left;font-size:14px}
+    .muted{color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="/logo.png" />
+  <div class="title">
+    <h1>Tracker Hutang</h1>
+    <p class="muted">Tanpa Login — Full Akses</p>
+  </div>
+  <div class="actions">
+    <button id="themeBtn" class="btn-small">Toggle Dark</button>
+  </div>
+</header>
+
+<main class="container">
+  <section class="card">
+    <h3>Tambah / Edit Hutang</h3>
+
+    <label>Judul</label>
+    <input id="title">
+
+    <label>Jumlah (angka)</label>
+    <input id="amount" type="number">
+
+    <label>Jatuh Tempo</label>
+    <input id="due_date" type="date">
+
+    <label>Catatan</label>
+    <textarea id="notes"></textarea>
+
+    <label>Status</label>
+    <select id="status">
+      <option value="unpaid">Belum dibayar</option>
+      <option value="paid">Sudah dibayar</option>
+      <option value="late">Terlambat</option>
+    </select>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="saveBtn">Simpan</button>
+      <button id="clearBtn" class="btn-small" style="background:#e6eef6;color:#0f172a">Bersihkan</button>
+    </div>
+
+    <hr style="margin:12px 0">
+    <button id="exportBtn" class="btn-small">Export CSV</button>
+    <button id="refreshBtn" class="btn-small" style="background:#e2e8f0;color:#0f172a">Refresh</button>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <input id="search" placeholder="Cari..." style="padding:8px;border-radius:8px;border:1px solid #e6eef6">
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Judul</th><th>Jumlah</th><th>Jatuh Tempo</th><th>Status</th><th>Aksi</th></tr>
+      </thead>
+      <tbody id="debtsTable">
+        <tr><td colspan="5" class="muted">Memuat...</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+/* ====================== SUPABASE CONFIG ====================== */
+const SUPABASE_URL = "https://mbziktvhpevsouabxkls.supabase.co";
+
+// ⚠️ GANTI DENGAN ANON KEY LENGKAP !!!
+const SUPABASE_ANON_KEY = "MASUKKAN_ANON_KEY_LENGKAP_DI_SINI";
+
+const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = id => document.getElementById(id);
+
+/* ====================== MODE GELAP ====================== */
+document.getElementById("themeBtn").onclick = () => {
+  const root = document.documentElement;
+  root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+};
+
+/* ====================== LOAD DATA ====================== */
+async function loadDebts() {
+  const { data, error } = await client.from("debts").select("*").order("due_date");
+
+  const table = $("debtsTable");
+  if (error) {
+    table.innerHTML = `<tr><td colspan="5">Error: ${error.message}</td></tr>`;
+    return;
+  }
+
+  if (!data.length) {
+    table.innerHTML = `<tr><td colspan="5">Belum ada data</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = "";
+  data.forEach(r => {
+    table.innerHTML += `
+      <tr>
+        <td>${escape(r.title)}</td>
+        <td>${Number(r.amount).toLocaleString("id-ID")}</td>
+        <td>${r.due_date ?? "-"}</td>
+        <td>${r.status}</td>
+        <td><button class="btn-small" onclick="delDebt('${r.id}')">Hapus</button></td>
+      </tr>`;
+  });
+}
+
+function escape(s){ return s?.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") || ""; }
+
+/* ====================== HAPUS ====================== */
+window.delDebt = async (id) => {
+  await client.from("debts").delete().eq("id", id);
+  loadDebts();
+};
+
+/* ====================== SIMPAN ====================== */
+$("saveBtn").onclick = async () => {
+  const payload = {
+    title: $("title").value,
+    amount: Number($("amount").value),
+    due_date: $("due_date").value,
+    notes: $("notes").value,
+    status: $("status").value,
+  };
+
+  await client.from("debts").insert(payload);
+  loadDebts();
+};
+
+/* ====================== CLEAR ====================== */
+$("clearBtn").onclick = () => {
+  $("title").value = "";
+  $("amount").value = "";
+  $("due_date").value = "";
+  $("notes").value = "";
+  $("status").value = "unpaid";
+};
+
+/* ====================== EXPORT CSV ====================== */
+$("exportBtn").onclick = async () => {
+  const { data } = await client.from("debts").select("*");
+  let csv = "id,title,amount,due_date,notes,status\n";
+  data.forEach(r => {
+    csv += `${r.id},"${(r.title||"").replace(/"/g,'""')}",${r.amount},${r.due_date||''},"${(r.notes||"").replace(/"/g,'""')}",${r.status}\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "debts.csv";
+  a.click();
+};
+
+$("refreshBtn").onclick = loadDebts;
+
+/* START */
+loadDebts();
+</script>
+
+</body>
+</html>
